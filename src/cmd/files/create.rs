@@ -7,9 +7,9 @@ use clap::ArgMatches;
 use mime_guess;
 use reqwest;
 use reqwest::blocking::Client;
-use reqwest::blocking::multipart;
 use reqwest::header::CONTENT_TYPE;
 use serde_json::json;
+use url::form_urlencoded;
 
 use crate::goauth::USER_AGENT;
 use crate::config::Config;
@@ -17,45 +17,32 @@ use crate::error::Error;
 
 const FILES_FILE_API: &'static str = "https://www.googleapis.com/upload/drive/v3/files";
 const FILES_METADATA_API: &'static str = "https://www.googleapis.com/drive/v3/files";
-// const FILES_UPDATE_METADATA_API: &'static str = "https://content.googleapis.com/drive/v3/files";
 
-// fn create_metadata_part(args: &ArgMatches) -> Result<multipart::Part, Error> {
-//     let mut map = HashMap::new();
-//     if let Some(name) = args.value_of("name") {
-//         map.insert(String::from("name"), json!(name));
-//     }
-//     if let Some(description) = args.value_of("description") {
-//         map.insert(String::from("description"), json!(description));
-//     }
-//     if let Some(drive_id) = args.value_of("drive_id") {
-//         map.insert(String::from("drive_id"), json!(drive_id));
-//     }
-//     let json = json!(map);
+#[derive(Debug)]
+struct FileMetadata {
+    pub id: String,
+    pub web_content_link: Option<String>,
+    pub web_view_link: Option<String>,
+}
 
-//     let mut part = multipart::Part::text(json.to_string());
-//     part = part.mime_str("application/json; charset=UTF-8")?;
-
-//     Ok(part)
-// }
-
-// fn create_file_part(args: &ArgMatches) -> Result<multipart::Part, Error> {
-//     if let Some(filepath) = args.value_of("file") {
-//         let path = Path::new(filepath);
-//         Ok(multipart::Part::file(&path)?)
-//     } else {
-//         panic!("specify file");
-//     }
-// }
+impl FileMetadata {
+    pub fn from(response: &serde_json::Value) -> Result<FileMetadata, Error> {
+        Ok(FileMetadata {
+            id: response["id"].as_str().map(|v| String::from(v)).ok_or_else(|| Error::MalformedResponse(String::from("id is not obtained")))?,
+            web_content_link: response["webContentLink"].as_str().map(|v| String::from(v)),
+            web_view_link: response["webViewLink"].as_str().map(|v| String::from(v)),
+        })
+    }
+}
 
 fn guess_mime_type(path: &Path) -> Result<mime_guess::Mime, Error> {
-    //let file_name = path.file_name().map(|filename| filename.to_string_lossy().into_owned());
     let ext = path.extension().and_then(|ext| ext.to_str()).unwrap_or("");
     let mime = mime_guess::from_ext(ext).first_or_octet_stream();
 
     Ok(mime)
 }
 
-fn upload_file(client: &Client, access_token: &str, file_id: &Option<&str>, filepath: &Path) -> Result<String, Error> {
+fn upload_file(client: &Client, access_token: &str, file_id: &Option<&str>, filepath: &Path) -> Result<FileMetadata, Error> {
     let mime_type = guess_mime_type(&filepath)?;
     let file: File = File::open(&filepath)?;
 
@@ -75,13 +62,10 @@ fn upload_file(client: &Client, access_token: &str, file_id: &Option<&str>, file
     }
 
     let response: serde_json::Value = serde_json::from_reader(res)?;
-    response["id"].as_str().map_or_else(
-        || Err(Error::MalformedResponse(String::from("id is not obtained"))),
-        |x| Ok(String::from(x))
-    )
+    FileMetadata::from(&response)
 }
 
-fn create_or_update_file(client: &Client, access_token: &str, file_id: &Option<&str>, args: &ArgMatches) -> Result<String, Error> {
+fn create_or_update_file(client: &Client, access_token: &str, file_id: &Option<&str>, args: &ArgMatches) -> Result<FileMetadata, Error> {
     let mut map = HashMap::new();
     if let Some(name) = args.value_of("name") {
         map.insert(String::from("name"), json!(name));
@@ -99,7 +83,6 @@ fn create_or_update_file(client: &Client, access_token: &str, file_id: &Option<&
     let json = json!(map);
 
     let request_json: String = json.to_string();
-    println!("request_json={}", request_json);
 
     let req = if let Some(file_id) = file_id {
         client.patch(format!("{}/{}", FILES_METADATA_API, file_id).as_str())
@@ -116,48 +99,44 @@ fn create_or_update_file(client: &Client, access_token: &str, file_id: &Option<&
     }
 
     let response: serde_json::Value = serde_json::from_reader(res)?;
-    response["id"].as_str().map_or_else(
-        || Err(Error::MalformedResponse(String::from("id is not obtained"))),
-        |x| Ok(String::from(x))
-    )
+    FileMetadata::from(&response)
+}
+
+fn get_file(client: &Client, access_token: &str, file_id: &str) -> Result<FileMetadata, Error> {
+    let mut params = form_urlencoded::Serializer::new(String::new());
+    params.append_pair("fields", "id,webContentLink,webViewLink");
+
+    let url = format!("{}/{}?{}", FILES_METADATA_API, file_id, params.finish());
+
+    let res = client.get(&url)
+        .bearer_auth(access_token)
+        .header(reqwest::header::USER_AGENT, USER_AGENT)
+        .send()?;
+
+    if !res.status().is_success() {
+        return Err(Error::from(res));
+    }
+
+    let response: serde_json::Value = serde_json::from_reader(res)?;
+    FileMetadata::from(&response)
 }
 
 pub fn execute_files_create(args: &ArgMatches) -> Result<(), Error> {
     let config = Config::load("default")?;
-    // let access_token: &str = &config.access_token;
 
     let filepath = match args.value_of("file") {
         Some(file) => Path::new(file),
         _ => panic!("specify file"),
     };
 
-    // let first_part = create_metadata_part(&args)?;
-    // let second_part = create_file_part(&args)?;
-
-    // let form = multipart::Form::new();
-    // let form = form.part("metadata", first_part);
-    // let form = form.part("file", second_part);
-    // let boundary = String::from(form.boundary());
-
     let client = Client::new();
 
-    // let req = client.post(FILES_CREATE_API)
-    //     .bearer_auth(access_token)
-    //     .header(reqwest::header::USER_AGENT, USER_AGENT)
-    //     .multipart(form)
-    //     .header(CONTENT_TYPE, format!("multipart/related; boundary={}", boundary).as_str());
-
-    // let res = req.send()?;
-    // if !res.status().is_success() {
-    //     return Err(Error::from(res));
-    // }
-
-    // let response: serde_json::Value = serde_json::from_reader(res)?;
-    // puts_file(&response);
-    let file_id = create_or_update_file(&client, &config.access_token, &None, &args)?;
-    println!("file_id={}", file_id);
-
-    upload_file(&client, &config.access_token, &Some(&file_id), &filepath)?;
+    let metadata = create_or_update_file(&client, &config.access_token, &None, &args)?;
+    upload_file(&client, &config.access_token, &Some(&metadata.id), &filepath)?;
+    let metadata = get_file(&client, &config.access_token, &metadata.id)?;
+    if let Some(url) = metadata.web_content_link.or(metadata.web_view_link) {
+        println!("{}", url);
+    }
 
     Ok(())
 }
