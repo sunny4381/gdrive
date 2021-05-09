@@ -1,0 +1,17 @@
+[package]
+name = "gdrive"
+version = "1.0.0"
+authors = ["NAKANO Hideo <pinarello.marvel@gmail.com>"]
+edition = '2018'
+
+[dependencies]
+clap = "*"
+env_logger = "*"
+mime = "*"
+mime_guess = "*"
+reqwest = { version = "*", features = ["blocking", "json"] }
+rustc-serialize = "*"
+serde = "*"
+serde_derive = "*"
+serde_json = "*"
+url = "*"
