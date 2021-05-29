@@ -38,7 +38,12 @@ fn main() {
                 (@arg name: --name +takes_value "name of file")
                 (@arg description: --description +takes_value "file description")
                 (@arg parent: --parent +takes_value "comma separatered parent list")
-                (@arg drive_id: --drive_id +takes_value "drive id to create")
+            )
+            (@subcommand create_folder =>
+                (about: "create folder")
+                (@arg name: --name +takes_value "name of folder")
+                (@arg description: --description +takes_value "file description")
+                (@arg parent: --parent +takes_value "comma separatered parent list")
             )
         )
     ).get_matches();

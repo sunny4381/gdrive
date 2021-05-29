@@ -9,7 +9,7 @@ use self::init::execute_init;
 use self::refresh::execute_refresh;
 use self::whoami::execute_whoami;
 use self::files::list::execute_files_list;
-use self::files::create::execute_files_create;
+use self::files::create::{execute_files_create, execute_files_create_folder};
 use crate::error::Error;
 
 pub fn execute(args: &ArgMatches) -> Result<(), Error> {
@@ -24,6 +24,8 @@ pub fn execute(args: &ArgMatches) -> Result<(), Error> {
             return execute_files_list(args);
         } else if let Some(args) = args.subcommand_matches("create") {
             return execute_files_create(args);
+        } else if let Some(args) = args.subcommand_matches("create_folder") {
+            return execute_files_create_folder(args);
         }
     }
 

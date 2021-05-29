@@ -34,14 +34,11 @@ fn puts_files(files: &Vec<serde_json::Value>) {
     }
 }
 
-fn list_all_files(client: &Client, access_token: &str, drive_id: &Option<&str>, query: &Option<&str>, page_token: &Option<&str>) -> Result<(), Error> {
+fn list_all_files(client: &Client, access_token: &str, query: &Option<&str>, page_token: &Option<&str>) -> Result<(), Error> {
     let mut params = form_urlencoded::Serializer::new(String::new());
     params.append_pair("fields", "files,nextPageToken");
     params.append_pair("includeItemsFromAllDrives", "true");
     params.append_pair("supportsAllDrives", "true");
-    if let Some(id) = drive_id {
-        params.append_pair("driveId", id);
-    }
     if let Some(q) = query {
         params.append_pair("q", q);
     }
@@ -70,7 +67,7 @@ fn list_all_files(client: &Client, access_token: &str, drive_id: &Option<&str>, 
     }
 
     if let Some(next_token) = response["nextPageToken"].as_str() {
-        return list_all_files(client, access_token, drive_id, query, &Some(next_token));
+        return list_all_files(client, access_token, query, &Some(next_token));
     }
 
     Ok(())
@@ -80,5 +77,5 @@ pub fn execute_files_list(args: &ArgMatches) -> Result<(), Error> {
     let config = Config::load("default")?;
     let client = Client::new();
 
-    list_all_files(&client, &config.access_token, &args.value_of("drive_id"), &args.value_of("query"), &None)
+    list_all_files(&client, &config.access_token, &args.value_of("query"), &None)
 }

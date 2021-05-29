@@ -42,19 +42,13 @@ fn guess_mime_type(path: &Path) -> Result<mime_guess::Mime, Error> {
     Ok(mime)
 }
 
-fn upload_file(client: &Client, access_token: &str, file_id: &Option<&str>, filepath: &Path) -> Result<FileMetadata, Error> {
-    let mime_type = guess_mime_type(&filepath)?;
+fn upload_file(client: &Client, access_token: &str, file_id: &str, filepath: &Path, mime_type: &str) -> Result<FileMetadata, Error> {
     let file: File = File::open(&filepath)?;
 
-    let req = if let Some(file_id) = file_id {
-        client.patch(format!("{}/{}?uploadType=media", FILES_FILE_API, file_id).as_str())
-    } else {
-        client.post(format!("{}?uploadType=media", FILES_FILE_API).as_str())
-    };
-
+    let req = client.patch(format!("{}/{}?uploadType=media", FILES_FILE_API, file_id).as_str());
     let res = req.bearer_auth(access_token)
         .header(reqwest::header::USER_AGENT, USER_AGENT)
-        .header(CONTENT_TYPE, mime_type.to_string())
+        .header(CONTENT_TYPE, mime_type)
         .body(file)
         .send()?;
     if !res.status().is_success() {
@@ -65,7 +59,7 @@ fn upload_file(client: &Client, access_token: &str, file_id: &Option<&str>, file
     FileMetadata::from(&response)
 }
 
-fn create_or_update_file(client: &Client, access_token: &str, file_id: &Option<&str>, args: &ArgMatches) -> Result<FileMetadata, Error> {
+fn create_or_update_file(client: &Client, access_token: &str, args: &ArgMatches, mime_type: &str) -> Result<FileMetadata, Error> {
     let mut map = HashMap::new();
     if let Some(name) = args.value_of("name") {
         map.insert(String::from("name"), json!(name));
@@ -73,22 +67,17 @@ fn create_or_update_file(client: &Client, access_token: &str, file_id: &Option<&
     if let Some(description) = args.value_of("description") {
         map.insert(String::from("description"), json!(description));
     }
-    if let Some(drive_id) = args.value_of("drive_id") {
-        map.insert(String::from("drive_id"), json!(drive_id));
-    }
     if let Some(parent) = args.value_of("parent") {
         let parents: Vec<&str> = parent.split("/").map(|x| x.trim()).collect();
         map.insert(String::from("parents"), json!(parents));
     }
+    map.insert(String::from("mimeType"), json!(mime_type));
+
     let json = json!(map);
 
     let request_json: String = json.to_string();
 
-    let req = if let Some(file_id) = file_id {
-        client.patch(format!("{}/{}", FILES_METADATA_API, file_id).as_str())
-    } else {
-        client.post(FILES_METADATA_API)
-    };
+    let req = client.post(FILES_METADATA_API);
     let res = req.bearer_auth(access_token)
         .header(reqwest::header::USER_AGENT, USER_AGENT)
         .header(reqwest::header::CONTENT_TYPE, "application/json")
@@ -128,15 +117,27 @@ pub fn execute_files_create(args: &ArgMatches) -> Result<(), Error> {
         Some(file) => Path::new(file),
         _ => panic!("specify file"),
     };
+    let _mime_type = guess_mime_type(&filepath)?;
+    let mime_type = _mime_type.to_string();
 
     let client = Client::new();
 
-    let metadata = create_or_update_file(&client, &config.access_token, &None, &args)?;
-    upload_file(&client, &config.access_token, &Some(&metadata.id), &filepath)?;
+    let metadata = create_or_update_file(&client, &config.access_token, &args, &mime_type)?;
+    upload_file(&client, &config.access_token, &metadata.id, &filepath, &mime_type)?;
     let metadata = get_file(&client, &config.access_token, &metadata.id)?;
     if let Some(url) = metadata.web_content_link.or(metadata.web_view_link) {
         println!("{}", url);
     }
+
+    Ok(())
+}
+
+pub fn execute_files_create_folder(args: &ArgMatches) -> Result<(), Error> {
+    let config = Config::load("default")?;
+    let client = Client::new();
+
+    let metadata = create_or_update_file(&client, &config.access_token, &args, "application/vnd.google-apps.folder")?;
+    println!("Folder ID: {}", metadata.id);
 
     Ok(())
 }
