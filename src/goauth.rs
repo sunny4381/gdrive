@@ -34,7 +34,7 @@ pub fn auth_url(client_id: &str) -> String {
         .append_pair("client_id", client_id)
         .append_pair("redirect_uri", REDIRECT_URI)
         .append_pair("response_type", "code")
-        .append_pair("scope", "profile email https://www.googleapis.com/auth/drive")
+        .append_pair("scope", "profile email https://www.googleapis.com/auth/drive.file")
         .finish();
     return format!("{}?{}", AUTH_URL, auth_params);
 }
